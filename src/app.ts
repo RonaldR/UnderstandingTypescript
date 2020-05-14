@@ -1,16 +1,16 @@
 // One big cool file that has it all.
 
-// autobind decorator (not using this but keeping it for reference as it is in the example)
-function autobind(_target: any, _methodName: string, descriptor: PropertyDescriptor) {
-    const originalMethod = descriptor.value;
-    const adjDescriptor: PropertyDescriptor = {
-        configurable: true,
-        get() {
-            const boundFn = originalMethod.bind(this);
-            return boundFn;
-        }
-    };
-    return adjDescriptor;
+
+// Drag and Drop Interfaces
+interface Draggable {
+    dragStartHandler(event: DragEvent): void;
+    dragEndHandler(event: DragEvent): void;
+}
+
+interface DragTarget {
+    dragOverHandler(event: DragEvent): void;
+    dropHandler(event: DragEvent): void;
+    dragLeaveHandler(event: DragEvent): void;
 }
 
 
@@ -62,12 +62,24 @@ class ProjectState extends State<Project> {
                                         numOfPeople,
                                         ProjectStatus.Active);
         this.projects.push(newProject);
-        
+        this.updateListeners();
+    }
+
+    moveProject(id: string, newStatus: ProjectStatus) {
+        const project = this.projects.find(project => project.id === id);
+        if (project && project.status !== newStatus) {
+            project.status = newStatus;
+            this.updateListeners();
+        }
+    }
+
+    private updateListeners() {
         for (const listenerFn of this.listeners) {
             // slice makes copy? [...] cleaner?
             listenerFn(this.projects.slice());
         }
     }
+
 }
 // global constant state
 const projectState = ProjectState.getInstance();
@@ -103,11 +115,10 @@ abstract class Component<T extends HTMLElement> {
 }
 
 // ProjectItem Class
-class ProjectItem extends Component<HTMLLIElement> {
+class ProjectItem extends Component<HTMLLIElement> implements Draggable {
     private project: Project;
 
-    // convention: getters / setters below fields above functions
-
+    // convention: getters / setters below class fields above functions
     get peoplePerson() {
         return `${this.project.people} person${this.project.people > 1 ? 's' : ''}`
     }
@@ -121,7 +132,22 @@ class ProjectItem extends Component<HTMLLIElement> {
         this.renderContent();
     }
 
-    configure() {}
+    dragStartHandler(event: DragEvent) {
+        event.dataTransfer!.setData('text/plain', this.project.id);
+        event.dataTransfer!.effectAllowed = 'move';
+    }
+
+    dragEndHandler(_event: DragEvent) {
+        const droppableElements = document.querySelectorAll('.droppable')!;
+        for(const droppableElement of droppableElements) {
+            droppableElement.classList.remove('droppable');
+        }
+    }
+
+    configure() {
+        this.element.addEventListener('dragstart', (event) => this.dragStartHandler(event));
+        this.element.addEventListener('dragend', (event) => this.dragEndHandler(event));
+    }
 
     renderContent() {
         this.element.querySelector('h2')!.textContent = this.project.title;
@@ -131,7 +157,7 @@ class ProjectItem extends Component<HTMLLIElement> {
 }
 
 // ProjectList class
-class ProjectList extends Component<HTMLElement> {
+class ProjectList extends Component<HTMLElement> implements DragTarget {
     assignedProjects: Project[] = [];
 
     constructor(private type: 'active' | 'finished') {
@@ -141,7 +167,29 @@ class ProjectList extends Component<HTMLElement> {
         this.renderContent();
     }
 
+    dragOverHandler(event: DragEvent) {
+        if (event.dataTransfer && event.dataTransfer.types[0] === 'text/plain') {
+            event.preventDefault(); // drop event is only called with preventDefault
+            const listElement = this.element.querySelector('ul')!;
+            listElement.classList.add('droppable');
+        }
+    }
+
+    dragLeaveHandler(_event: DragEvent) {
+        const listElement = this.element.querySelector('ul')!;
+        listElement.classList.remove('droppable');
+    }
+
+    dropHandler(event: DragEvent) {
+        const projectId = event.dataTransfer!.getData('text/plain');
+        projectState.moveProject(projectId, this.type === 'active' ? ProjectStatus.Active : ProjectStatus.Finished);
+    }
+
     configure() {
+        this.element.addEventListener('dragover', (event) => this.dragOverHandler(event));
+        this.element.addEventListener('dragleave', (event) => this.dragLeaveHandler(event));
+        this.element.addEventListener('drop',(event) => this.dropHandler(event));
+
         projectState.addListener((projects: Project[]) => {
             const relevantProjects = projects.filter(prj => {
                 if (this.type === 'active') {
@@ -290,3 +338,17 @@ const project = new ProjectInput();
 
 const activeList = new ProjectList('active');
 const finishedList = new ProjectList('finished');
+
+
+// autobind decorator (not using this but keeping it for reference as it is in the example)
+function autobind(_target: any, _methodName: string, descriptor: PropertyDescriptor) {
+    const originalMethod = descriptor.value;
+    const adjDescriptor: PropertyDescriptor = {
+        configurable: true,
+        get() {
+            const boundFn = originalMethod.bind(this);
+            return boundFn;
+        }
+    };
+    return adjDescriptor;
+}
